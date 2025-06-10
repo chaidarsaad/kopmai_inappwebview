@@ -6,7 +6,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:open_file/open_file.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 
 class WebviewPage extends StatefulWidget {
   const WebviewPage({super.key});
@@ -17,6 +17,7 @@ class WebviewPage extends StatefulWidget {
 
 class _WebviewPageState extends State<WebviewPage> {
   InAppWebViewController? webViewController;
+  double _downloadProgress = 0.0;
 
   @override
   void initState() {
@@ -50,68 +51,127 @@ class _WebviewPageState extends State<WebviewPage> {
     );
   }
 
-  Future<void> downloadFile(String url, String fallbackFilename) async {
-    final directory = await getApplicationDocumentsDirectory();
-    String filename = fallbackFilename;
+  Future<String> getUniqueFilename(Directory dir, String filename) async {
+    String nameWithoutExtension = filename;
+    String extension = '';
 
-    Map<String, String> headers = {};
-    try {
-      final cookieManager = CookieManager.instance();
-      final cookies = await cookieManager.getCookies(url: WebUri(url));
-      if (cookies.isNotEmpty) {
-        headers['Cookie'] = cookies
-            .map((c) => "${c.name}=${c.value}")
-            .join("; ");
-      }
-    } catch (e) {
-      debugPrint("Gagal ambil cookies: $e");
+    final dotIndex = filename.lastIndexOf('.');
+    if (dotIndex != -1) {
+      nameWithoutExtension = filename.substring(0, dotIndex);
+      extension = filename.substring(dotIndex);
     }
 
-    // Coba dapatkan nama file dari header
+    String newName = filename;
+    int count = 1;
+
+    while (await File('${dir.path}/$newName').exists()) {
+      newName = '$nameWithoutExtension($count)$extension';
+      count++;
+    }
+
+    return newName;
+  }
+
+  Future<void> downloadFile(String url, String fallbackFilename) async {
     try {
-      final response = await Dio().head(
-        url,
-        options: Options(headers: headers),
-      );
-      final contentDisposition = response.headers.value('content-disposition');
-      if (contentDisposition != null) {
-        final regex = RegExp(r'filename="?([^"]+)"?');
-        final match = regex.firstMatch(contentDisposition);
-        if (match != null) {
-          filename = match.group(1)!;
+      String filename = fallbackFilename;
+      Map<String, String> headers = {};
+
+      // Ambil cookie jika perlu
+      try {
+        final cookieManager = CookieManager.instance();
+        final cookies = await cookieManager.getCookies(url: WebUri(url));
+        if (cookies.isNotEmpty) {
+          headers['Cookie'] = cookies
+              .map((c) => "${c.name}=${c.value}")
+              .join("; ");
+        }
+      } catch (_) {}
+
+      // Coba ambil nama file dan ekstensi dari header
+      try {
+        final response = await Dio().head(
+          url,
+          options: Options(headers: headers),
+        );
+
+        final contentDisposition = response.headers.value(
+          'content-disposition',
+        );
+        final contentType = response.headers.value('content-type');
+
+        // Ambil nama file dari content-disposition jika ada
+        if (contentDisposition != null) {
+          final regex = RegExp(r'filename="?([^"]+)"?');
+          final match = regex.firstMatch(contentDisposition);
+          if (match != null) {
+            filename = match.group(1)!;
+          }
+        } else if (!filename.contains('.')) {
+          // Jika filename tidak ada ekstensi, coba tambahkan dari content-type
+          if (contentType != null) {
+            final mimeTypeParts = contentType.split('/');
+            if (mimeTypeParts.length == 2) {
+              String ext = mimeTypeParts[1];
+              if (ext.contains(';')) {
+                ext = ext.split(';')[0];
+              }
+
+              // Jika ekstensi masih kosong, gunakan .bin
+              if (ext.isEmpty) {
+                ext = 'bin';
+              }
+
+              filename = '$filename.$ext';
+            }
+          } else {
+            // fallback jika tidak ada content-type
+            filename = '$filename.bin';
+          }
+        }
+      } catch (e) {
+        debugPrint("Gagal ambil header filename: $e");
+        // fallback kalau gagal ambil header
+        if (!filename.contains('.')) {
+          filename = '$filename.bin';
         }
       }
-    } catch (e) {
-      debugPrint("Gagal ambil header filename: $e");
-    }
 
-    // Buat direktori khusus untuk download
-    final downloadDir = Directory('${directory.path}/downloads');
-    if (!await downloadDir.exists()) {
-      await downloadDir.create(recursive: true);
-    }
+      // Buat path sementara di folder app
+      final tempDir = await getTemporaryDirectory();
+      filename = await getUniqueFilename(tempDir, filename);
+      final tempPath = "${tempDir.path}/$filename";
 
-    final savePath = '${downloadDir.path}/$filename';
-    debugPrint("Menyimpan ke: $savePath");
-
-    try {
       await Dio().download(
         url,
-        savePath,
+        tempPath,
         options: Options(headers: headers),
         onReceiveProgress: (received, total) {
           if (total != -1) {
-            debugPrint("${(received / total * 100).toStringAsFixed(0)}%");
+            setState(() {
+              _downloadProgress = received / total;
+            });
           }
         },
       );
 
-      _showSnackBar("Download berhasil: $filename");
+      _showSnackBar("Download selesai, membuka dialog simpan...");
 
-      // Buka file setelah selesai didownload
-      await OpenFile.open(savePath);
+      // Buka dialog simpan ke lokasi publik
+      final params = SaveFileDialogParams(
+        sourceFilePath: tempPath,
+        fileName: filename,
+      );
+
+      final savedPath = await FlutterFileDialog.saveFile(params: params);
+
+      if (savedPath != null) {
+        _showSnackBar("File berhasil disimpan: $savedPath");
+      } else {
+        _showSnackBar("Simpan dibatalkan oleh pengguna.");
+      }
     } catch (e) {
-      debugPrint("Error saat download: $e");
+      debugPrint("Download gagal: $e");
       _showSnackBar("Download gagal: ${e.toString()}");
     }
   }
@@ -134,32 +194,49 @@ class _WebviewPageState extends State<WebviewPage> {
       },
       child: SafeArea(
         child: Scaffold(
-          body: InAppWebView(
-            initialUrlRequest: URLRequest(
-              url: WebUri("https://www.kopmai.com"),
-            ),
-            // initialUrlRequest: URLRequest(
-            //   url: WebUri("http://192.168.100.58:8000"),
-            // ),
-            initialSettings: InAppWebViewSettings(
-              mediaPlaybackRequiresUserGesture: false,
-              allowsInlineMediaPlayback: true,
-              javaScriptEnabled: true,
-              useShouldOverrideUrlLoading: true,
-              useOnDownloadStart: true,
-              supportZoom: true,
-            ),
-            onWebViewCreated: (controller) {
-              webViewController = controller;
-            },
-            shouldOverrideUrlLoading: (controller, navigationAction) async {
-              return NavigationActionPolicy.ALLOW;
-            },
-            onDownloadStartRequest: (controller, downloadStartRequest) async {
-              final url = downloadStartRequest.url.toString();
-              debugPrint("Mulai download dari: $url");
-              await downloadFile(url, "download.xlsx");
-            },
+          body: Stack(
+            children: [
+              InAppWebView(
+                initialUrlRequest: URLRequest(
+                  url: WebUri("https://www.kopmai.com"),
+                ),
+                // initialUrlRequest: URLRequest(
+                //   url: WebUri("http://192.168.100.58:8000"),
+                // ),
+                initialSettings: InAppWebViewSettings(
+                  mediaPlaybackRequiresUserGesture: false,
+                  allowsInlineMediaPlayback: true,
+                  javaScriptEnabled: true,
+                  useShouldOverrideUrlLoading: true,
+                  useOnDownloadStart: true,
+                  supportZoom: true,
+                ),
+                onWebViewCreated: (controller) {
+                  webViewController = controller;
+                },
+                shouldOverrideUrlLoading: (controller, navigationAction) async {
+                  return NavigationActionPolicy.ALLOW;
+                },
+                onDownloadStartRequest: (
+                  controller,
+                  downloadStartRequest,
+                ) async {
+                  final url = downloadStartRequest.url.toString();
+
+                  String fallbackFilename = Uri.parse(url).pathSegments.last;
+
+                  debugPrint("Mulai download dari: $url");
+                  await downloadFile(url, fallbackFilename);
+                },
+              ),
+              if (_downloadProgress > 0 && _downloadProgress < 1)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(value: _downloadProgress),
+                ),
+            ],
           ),
         ),
       ),

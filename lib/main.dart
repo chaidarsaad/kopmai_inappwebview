@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:kopmai_app/splashscreen_page.dart';
-// Tambahkan ini
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

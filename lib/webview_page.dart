@@ -77,7 +77,6 @@ class _WebviewPageState extends State<WebviewPage> {
       String filename = fallbackFilename;
       Map<String, String> headers = {};
 
-      // Ambil cookie jika perlu
       try {
         final cookieManager = CookieManager.instance();
         final cookies = await cookieManager.getCookies(url: WebUri(url));
@@ -88,7 +87,6 @@ class _WebviewPageState extends State<WebviewPage> {
         }
       } catch (_) {}
 
-      // Coba ambil nama file dan ekstensi dari header
       try {
         final response = await Dio().head(
           url,
@@ -100,7 +98,6 @@ class _WebviewPageState extends State<WebviewPage> {
         );
         final contentType = response.headers.value('content-type');
 
-        // Ambil nama file dari content-disposition jika ada
         if (contentDisposition != null) {
           final regex = RegExp(r'filename="?([^"]+)"?');
           final match = regex.firstMatch(contentDisposition);
@@ -108,7 +105,6 @@ class _WebviewPageState extends State<WebviewPage> {
             filename = match.group(1)!;
           }
         } else if (!filename.contains('.')) {
-          // Jika filename tidak ada ekstensi, coba tambahkan dari content-type
           if (contentType != null) {
             final mimeTypeParts = contentType.split('/');
             if (mimeTypeParts.length == 2) {
@@ -117,7 +113,6 @@ class _WebviewPageState extends State<WebviewPage> {
                 ext = ext.split(';')[0];
               }
 
-              // Jika ekstensi masih kosong, gunakan .bin
               if (ext.isEmpty) {
                 ext = 'bin';
               }
@@ -125,19 +120,16 @@ class _WebviewPageState extends State<WebviewPage> {
               filename = '$filename.$ext';
             }
           } else {
-            // fallback jika tidak ada content-type
             filename = '$filename.bin';
           }
         }
       } catch (e) {
         debugPrint("Gagal ambil header filename: $e");
-        // fallback kalau gagal ambil header
         if (!filename.contains('.')) {
           filename = '$filename.bin';
         }
       }
 
-      // Buat path sementara di folder app
       final tempDir = await getTemporaryDirectory();
       filename = await getUniqueFilename(tempDir, filename);
       final tempPath = "${tempDir.path}/$filename";
@@ -157,7 +149,6 @@ class _WebviewPageState extends State<WebviewPage> {
 
       _showSnackBar("Download selesai, membuka dialog simpan...");
 
-      // Buka dialog simpan ke lokasi publik
       final params = SaveFileDialogParams(
         sourceFilePath: tempPath,
         fileName: filename,
@@ -200,9 +191,6 @@ class _WebviewPageState extends State<WebviewPage> {
                 initialUrlRequest: URLRequest(
                   url: WebUri("https://www.kopmai.com"),
                 ),
-                // initialUrlRequest: URLRequest(
-                //   url: WebUri("http://192.168.100.58:8000"),
-                // ),
                 initialSettings: InAppWebViewSettings(
                   mediaPlaybackRequiresUserGesture: false,
                   allowsInlineMediaPlayback: true,

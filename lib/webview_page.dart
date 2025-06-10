@@ -124,7 +124,6 @@ class _WebviewPageState extends State<WebviewPage> {
           }
         }
       } catch (e) {
-        debugPrint("Gagal ambil header filename: $e");
         if (!filename.contains('.')) {
           filename = '$filename.bin';
         }
@@ -162,7 +161,6 @@ class _WebviewPageState extends State<WebviewPage> {
         _showSnackBar("Simpan dibatalkan oleh pengguna.");
       }
     } catch (e) {
-      debugPrint("Download gagal: $e");
       _showSnackBar("Download gagal: ${e.toString()}");
     }
   }
@@ -213,7 +211,6 @@ class _WebviewPageState extends State<WebviewPage> {
 
                   String fallbackFilename = Uri.parse(url).pathSegments.last;
 
-                  debugPrint("Mulai download dari: $url");
                   await downloadFile(url, fallbackFilename);
                 },
               ),

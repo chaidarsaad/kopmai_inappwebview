@@ -196,6 +196,7 @@ class _WebviewPageState extends State<WebviewPage> {
                   useShouldOverrideUrlLoading: true,
                   useOnDownloadStart: true,
                   supportZoom: true,
+                  // forceDark: ForceDark.OFF,
                 ),
                 onWebViewCreated: (controller) {
                   webViewController = controller;

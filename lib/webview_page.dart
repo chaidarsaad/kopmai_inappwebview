@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class WebviewPage extends StatefulWidget {
   const WebviewPage({super.key});
@@ -196,14 +197,43 @@ class _WebviewPageState extends State<WebviewPage> {
                   useShouldOverrideUrlLoading: true,
                   useOnDownloadStart: true,
                   supportZoom: true,
-                  // forceDark: ForceDark.OFF,
+                  forceDark: ForceDark.OFF,
                 ),
                 onWebViewCreated: (controller) {
                   webViewController = controller;
                 },
                 shouldOverrideUrlLoading: (controller, navigationAction) async {
+                  final uri = navigationAction.request.url;
+
+                  if (uri == null) {
+                    return NavigationActionPolicy.ALLOW;
+                  }
+
+                  final url = uri.toString();
+
+                  // Tangani wa.me, whatsapp://, tel:, mailto:
+                  if (url.startsWith("https://wa.me") ||
+                      url.startsWith("whatsapp://") ||
+                      url.startsWith("tel:") ||
+                      url.startsWith("mailto:")) {
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text("Tidak bisa membuka aplikasi terkait."),
+                        ),
+                      );
+                    }
+                    return NavigationActionPolicy.CANCEL;
+                  }
+
                   return NavigationActionPolicy.ALLOW;
                 },
+
                 onDownloadStartRequest: (
                   controller,
                   downloadStartRequest,
